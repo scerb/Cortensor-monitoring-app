@@ -5,6 +5,7 @@ ui improvements
 telegram push notifications
 basic miner monitoring
 stat collection to be used with future releases
+staked balance display
 
 linux needs to run in a venv with certain python dependencies installed. copy existing miners.json to dl folder. run with python3 main.py
 
