@@ -10,7 +10,7 @@ class DataFetcher:
         self.alert_manager = alert_manager
         self.rpc_call_count = 0
         self.last_update_time = time.time()
-        self.cached_stats = []
+        self.cached_stats = {}
         self._initialized = False
 
     def fetch_data(self):
@@ -29,7 +29,7 @@ class DataFetcher:
 
         stats_list = []
         alert_settings = self.config_manager.get_alert_settings()
-        offline_threshold_sec = alert_settings.get("miner_offline_minutes", 5) * 60
+        offline_threshold_sec = alert_settings.get("miner_offline_minutes", 10) * 60
         known_miners = MinerManager.load_miners()
         current_time = time.time()
 
@@ -61,7 +61,9 @@ class DataFetcher:
                 "is_offline": is_offline
             })
 
-        self.cached_stats = stats_list
+        # ✅ Save the full filtered dictionary (not the list)
+        filtered_stats = {miner_id: stats[miner_id] for miner_id in known_miners if miner_id in stats}
+        self.cached_stats = filtered_stats
         self.last_update_time = current_time
         self._initialized = True
 
