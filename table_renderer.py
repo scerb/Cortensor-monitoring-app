@@ -1,4 +1,3 @@
-# table_renderer.py
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QBrush
 from PyQt5.QtWidgets import QTableWidgetItem
@@ -11,16 +10,19 @@ class TableRenderer:
         self.sort_column = -1
         self.sort_order = Qt.AscendingOrder
 
-    def render_table(self, table, stats_list):
+    def render_table(self, table, stats_dict):
         headers = [
             "Miner ID", "Ping", "Precommit (P/C)", "Commit (P/C)",
-            "Prepare (P/C)", "Create (P/C)", "Last Active", "ETH Balance"
+            "Prepare (P/C)", "Create (P/C)", "Last Active", "ETH Balance",
+            "Staked", "Staked Time Ago"
         ]
 
         headers_with_arrows = headers[:]
         if self.sort_column != -1:
             arrow = "↓" if self.sort_order == Qt.DescendingOrder else "↑"
             headers_with_arrows[self.sort_column] += f" {arrow}"
+
+        stats_list = self._dict_to_list(stats_dict)
 
         if self.sort_column != -1:
             stats_list = self._sort_stats(stats_list, headers)
@@ -37,6 +39,13 @@ class TableRenderer:
 
         self._set_column_widths(table)
 
+    def _dict_to_list(self, stats_dict):
+        return [
+            {**data, "miner_id": miner_id}
+            for miner_id, data in stats_dict.items()
+            if not miner_id.startswith("__")
+        ]
+
     def _sort_stats(self, stats_list, headers):
         column_name = headers[self.sort_column]
 
@@ -47,19 +56,18 @@ class TableRenderer:
                 return x.get("ping", 0)
             elif column_name == "ETH Balance":
                 return float(x.get("eth_balance", 0.0))
+            elif column_name == "Staked":
+                return float(x.get("staked", 0.0))
             elif column_name == "Last Active":
                 text = x.get("last_active", "")
                 if not isinstance(text, str):
-                    return float('inf')  # Push unknowns to bottom
-
-                # Extract hours, minutes, and seconds
+                    return float('inf')
                 time_match = re.search(r"(?:(\d+)\s*hr)?\s*(?:(\d+)\s*min)?\s*(?:(\d+)\s*sec)?", text)
                 if time_match:
                     hrs = int(time_match.group(1) or 0)
                     mins = int(time_match.group(2) or 0)
                     secs = int(time_match.group(3) or 0)
-                    total_seconds = hrs * 3600 + mins * 60 + secs
-                    return total_seconds
+                    return hrs * 3600 + mins * 60 + secs
                 return float('inf')
             else:
                 metric_map = {
@@ -84,10 +92,10 @@ class TableRenderer:
         item.setToolTip(data["miner_id"])
         table.setItem(row, 0, item)
 
-        table.setItem(row, 1, QTableWidgetItem(str(data["ping"])))
+        table.setItem(row, 1, QTableWidgetItem(str(data.get("ping", 0))))
 
         def format_pc(metric):
-            m = data[metric]
+            m = data.get(metric, {})
             point = m.get("point", 0)
             counter = m.get("counter", 1)
             percent = (point / counter * 100) if counter else 0
@@ -98,23 +106,28 @@ class TableRenderer:
         table.setItem(row, 4, QTableWidgetItem(format_pc("prepare")))
         table.setItem(row, 5, QTableWidgetItem(format_pc("create")))
 
-        last_active_text = str(data.get("last_active", ""))
-        table.setItem(row, 6, QTableWidgetItem(last_active_text))
+        table.setItem(row, 6, QTableWidgetItem(str(data.get("last_active", ""))))
 
-        eth_value = data.get("eth_balance", 0.0)
-        eth_item = QTableWidgetItem(str(eth_value))
-        eth_item.setTextAlignment(Qt.AlignRight)
+        def make_balance_item(key):
+            val = data.get(key, "N/A")
+            item = QTableWidgetItem(str(val))
+            item.setTextAlignment(Qt.AlignRight)
+            try:
+                val_float = float(val)
+                if key == "eth_balance":
+                    if val_float < thresholds["eth_low"]:
+                        item.setBackground(QBrush(QColor("#ffcccc")))
+                    elif val_float < thresholds["eth_mid"]:
+                        item.setBackground(QBrush(QColor("#fff2cc")))
+                    else:
+                        item.setBackground(QBrush(QColor("#ccffcc")))
+            except:
+                pass
+            return item
 
-        try:
-            eth_float = float(eth_value)
-            if eth_float < thresholds["eth_low"]:
-                eth_item.setBackground(QBrush(QColor("#ffcccc")))
-            elif eth_float < thresholds["eth_mid"]:
-                eth_item.setBackground(QBrush(QColor("#fff2cc")))
-            else:
-                eth_item.setBackground(QBrush(QColor("#ccffcc")))
-        except:
-            pass
+        table.setItem(row, 7, make_balance_item("eth_balance"))
+        table.setItem(row, 8, make_balance_item("staked"))
+        table.setItem(row, 9, QTableWidgetItem(data.get("staked_time_ago", "N/A")))
 
         if data.get("is_offline", False):
             for col in range(table.columnCount()):
@@ -122,10 +135,8 @@ class TableRenderer:
                 if item:
                     item.setBackground(QBrush(QColor("#ff9999")))
 
-        table.setItem(row, 7, eth_item)
-
     def _set_column_widths(self, table):
-        default_widths = [120, 60, 140, 140, 140, 140, 120, 100]
+        default_widths = [120, 60, 140, 140, 140, 140, 120, 100, 100, 120]
         column_widths = self.config_manager.get_column_widths()
         for i, default in enumerate(default_widths):
             table.setColumnWidth(i, int(column_widths.get(str(i), default)))
