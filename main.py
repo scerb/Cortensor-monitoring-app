@@ -5,8 +5,8 @@ import datetime
 import requests
 import corbot3
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QHeaderView, QVBoxLayout,
-    QTabWidget, QMessageBox, QPushButton
+    QApplication, QWidget, QHeaderView, QVBoxLayout, QHBoxLayout,
+    QTabWidget, QMessageBox, QPushButton, QLabel
 )
 from PyQt5.QtCore import Qt, QTimer
 from config_manager import ConfigManager
@@ -20,10 +20,9 @@ from stats_bot_tab import StatsBotTab
 
 class Dashboard(QWidget):
     # ----- Version check attributes -----
-    CURRENT_VERSION = "3.2.0"  
+    CURRENT_VERSION = "v3.2.0"  
     VERSION_API_URL = (
-        "https://api.github.com/repos/scerb/"
-        "Cortensor-monitoring-app/releases/latest"
+        "https://api.github.com/repos/scerb/Cortensor-monitoring-app/releases/latest"
     )
 
     def __init__(self):
@@ -53,17 +52,36 @@ class Dashboard(QWidget):
         self.tabs.addTab(self.alert_ui["tab"], "Alert Bot")
         self.tabs.addTab(self.stats_bot_ui, "Stats Bot")
 
+        # add version/status label to footer
+        self.version_label = QLabel(f"Version: {self.CURRENT_VERSION} (Checking...)")
+        footer_layout = self.dashboard_ui.get("footer_layout", None)
+        if footer_layout and isinstance(footer_layout, QHBoxLayout):
+            footer_layout.insertWidget(0, self.version_label)
+        else:
+            # fallback: build a footer bar under main tab
+            footer_bar = QHBoxLayout()
+            footer_bar.addWidget(self.version_label)
+            footer_bar.addStretch()
+            # reuse existing labels if present
+            rpc_label = self.dashboard_ui.get("rpc_label")
+            last_label = self.dashboard_ui.get("last_update_label")
+            next_label = self.dashboard_ui.get("next_update_label")
+            if rpc_label: footer_bar.addWidget(rpc_label)
+            if last_label: footer_bar.addWidget(last_label)
+            if next_label: footer_bar.addWidget(next_label)
+            self.dashboard_ui["tab"].layout().addLayout(footer_bar)
+
         self._add_clear_alerts_button()
         self._setup_connections()
 
-        layout = QVBoxLayout()
-        layout.addWidget(self.tabs)
-        self.setLayout(layout)
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(self.tabs)
+        self.setLayout(main_layout)
 
-        # timers
+        # timers for data and stats bot
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.update_countdown)
-        self.update_timer.start(1000)  # 1s
+        self.update_timer.start(1000)
 
         self.stats_bot_timer = QTimer(self)
         self.stats_bot_timer.timeout.connect(self.run_stats_bot)
@@ -74,9 +92,9 @@ class Dashboard(QWidget):
         self._check_for_update(force=True)
         self.version_timer = QTimer(self)
         self.version_timer.timeout.connect(self._check_for_update)
-        self.version_timer.start(24 * 3600 * 1000)  # every 24h
+        self.version_timer.start(24 * 3600 * 1000)
 
-        # load persisted data
+        # load persisted data and settings
         self.load_data()
         self.load_stats_bot_config()
 
@@ -94,6 +112,7 @@ class Dashboard(QWidget):
 
         # skip if within 24h and not forced
         if not force and (now - last_checked) < datetime.timedelta(hours=24):
+            self.version_label.setText(f"Version: {self.CURRENT_VERSION} (Up to date)")
             return
 
         try:
@@ -101,31 +120,23 @@ class Dashboard(QWidget):
             resp.raise_for_status()
             data = resp.json()
             remote_version = data.get("tag_name", "").lstrip("v")
-        except Exception as e:
-            print(f"Version check failed: {e}")
+        except Exception:
+            self.version_label.setText(f"Version: {self.CURRENT_VERSION} (Status unknown)")
             return
 
-        if self._version_greater(remote_version, self.CURRENT_VERSION):
-            QMessageBox.information(
-                self,
-                "Update Available",
-                (
-                    f"A new Cortensor version is out!\n\n"
-                    f"Installed: {self.CURRENT_VERSION}\n"
-                    f"Latest:    {remote_version}\n\n"
-                    "Get it here:\n"
-                    "https://github.com/scerb/Cortensor-monitoring-app/releases/latest"
-                )
+        if self._version_greater(remote_version, self.CURRENT_VERSION.lstrip('v')):
+            self.version_label.setText(
+                f"Version: {self.CURRENT_VERSION} → v{remote_version} (Update available)"
             )
+        else:
+            self.version_label.setText(f"Version: {self.CURRENT_VERSION} (Up to date)")
 
-        # persist last checked
         cfg["last_checked"] = now.isoformat()
         self.config_manager.save_config()
 
     @staticmethod
     def _version_greater(a, b):
-        def parse(v):
-            return [int(x) for x in v.split('.') if x.isdigit()]
+        def parse(v): return [int(x) for x in v.split('.') if x.isdigit()]
         return parse(a) > parse(b)
 
     # ----- UI & Data methods -----
@@ -157,11 +168,11 @@ class Dashboard(QWidget):
             self.save_stats_bot_config)
 
     def _add_clear_alerts_button(self):
-        clear_alerts_button = QPushButton("Clear Sent Alerts")
-        clear_alerts_button.clicked.connect(self.clear_alerts)
+        btn = QPushButton("Clear Sent Alerts")
+        btn.clicked.connect(self.clear_alerts)
         layout = self.alert_ui["tab"].layout()
         if layout:
-            layout.addWidget(clear_alerts_button)
+            layout.addWidget(btn)
 
     def handle_header_click(self, index):
         self.table_renderer.handle_header_click(index, self.dashboard_ui["table"])
@@ -170,9 +181,9 @@ class Dashboard(QWidget):
     def load_data(self):
         stats, alerts = self.data_fetcher.fetch_data()
         if stats:
-            for alert_msg in alerts:
+            for msg in alerts:
                 self.alert_ui["alert_history"].append(
-                    f"[{time.strftime('%H:%M:%S')}] {alert_msg}"
+                    f"[{time.strftime('%H:%M:%S')}] {msg}"
                 )
         self.dashboard_ui["rpc_label"].setText(
             f"RPC Calls: {self.data_fetcher.rpc_call_count}"
@@ -212,7 +223,7 @@ class Dashboard(QWidget):
             self.stats_bot_ui.send_stats_to_telegram()
 
     def save_stats_bot_config(self):
-        config = {
+        cfg = {
             "enabled": self.stats_bot_ui.enable_checkbox.isChecked(),
             "interval": self.stats_bot_ui.freq_input.value(),
             "metrics": self.stats_bot_ui.get_selected_metrics(),
@@ -220,7 +231,7 @@ class Dashboard(QWidget):
             "include_timestamp": self.stats_bot_ui.include_timestamp_checkbox.isChecked(),
             "compare_over_time": self.stats_bot_ui.compare_checkbox.isChecked()
         }
-        self.config_manager.config["stats_bot"] = config
+        self.config_manager.config["stats_bot"] = cfg
         self.config_manager.save_config()
         QMessageBox.information(self, "Saved", "Stats Bot settings saved.")
 
@@ -271,7 +282,7 @@ class Dashboard(QWidget):
         self.alert_manager.test_telegram(self)
 
     def save_alert_settings(self):
-        alert_settings = {
+        alert_cfg = {
             "telegram_enabled": self.alert_ui["telegram_checkbox"].isChecked(),
             "bot_token": self.alert_ui["bot_token_input"].text(),
             "chat_id": self.alert_ui["chat_id_input"].text(),
@@ -279,7 +290,7 @@ class Dashboard(QWidget):
             "critical_balance_alert": float(self.alert_ui["critical_balance_input"].text()),
             "miner_offline_minutes": self.alert_ui["miner_offline_input"].value()
         }
-        self.config_manager.save_alert_settings(alert_settings)
+        self.config_manager.save_alert_settings(alert_cfg)
         QMessageBox.information(self, "Saved", "Alert settings saved successfully.")
         self.alert_ui["alert_history"].append(
             f"[{time.strftime('%H:%M:%S')}] Alert settings updated"
@@ -288,11 +299,9 @@ class Dashboard(QWidget):
 
     def clear_alerts(self):
         reply = QMessageBox.question(
-            self,
-            "Clear Alerts",
+            self, "Clear Alerts",
             "Are you sure you want to clear all sent alert history?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if reply == QMessageBox.Yes:
             try:
@@ -303,14 +312,14 @@ class Dashboard(QWidget):
                     f"[{time.strftime('%H:%M:%S')}] Alerts cleared manually"
                 )
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to clear alerts:\n{str(e)}")
+                QMessageBox.critical(self, "Error", f"Failed to clear alerts:\n{e}")
 
     def closeEvent(self, event):
-        column_widths = {}
-        table = self.dashboard_ui["table"]
-        for i in range(table.columnCount()):
-            column_widths[str(i)] = table.columnWidth(i)
-        self.config_manager.save_column_widths(column_widths)
+        col_widths = {}
+        tbl = self.dashboard_ui["table"]
+        for i in range(tbl.columnCount()):
+            col_widths[str(i)] = tbl.columnWidth(i)
+        self.config_manager.save_column_widths(col_widths)
         event.accept()
 
 
