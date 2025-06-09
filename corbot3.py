@@ -81,7 +81,7 @@ def save_miners(miners):
 
 def fetch_all_miner_data():
     try:
-        resp = requests.get("https://lb-be-4.cortensor.network/leaderboard")
+        resp = requests.get("https://lb-be-5.cortensor.network/leaderboard")
         if resp.status_code == 200:
             return resp.json()
     except Exception as e:
