@@ -20,7 +20,7 @@ from stats_bot_tab import StatsBotTab
 
 class Dashboard(QWidget):
     # ----- Version check attributes -----
-    CURRENT_VERSION = "3.2.0"  # <-- bump this on each release
+    CURRENT_VERSION = "3.2.0"  
     VERSION_API_URL = (
         "https://api.github.com/repos/scerb/"
         "Cortensor-monitoring-app/releases/latest"
